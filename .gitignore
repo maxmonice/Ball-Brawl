@@ -1,0 +1,10 @@
+# Build files
+**/bin/
+**/obj/
+
+# User-specific settings
+*.csproj.user
+*.suo
+
+# Visual Studio settings
+.vs/
