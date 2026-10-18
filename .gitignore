@@ -1,0 +1,23 @@
+# Build output
+bin/
+obj/
+
+# Visual Studio / IDE files
+.vs/
+.vscode/
+
+# User-specific files
+*.user
+*.suo
+
+# NuGet packages
+*.nupkg
+packages/
+
+# Logs and temporary files
+*.log
+*.tmp
+
+# Operating system files
+Thumbs.db
+.DS_Store
