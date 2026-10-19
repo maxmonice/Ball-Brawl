@@ -26,7 +26,7 @@ static class Audio
     static readonly Dictionary<string, float[]> bank = new(); static readonly Dictionary<string, long> last = new();
     static readonly List<(float t, string n, float v, float p, int g)> pending = new(); static readonly Random rng = new();
     static MixingSampleProvider mixer; static WaveOutEvent output; static bool ok; static float amb;
-    static readonly (float t, string n, float v)[] cues = { (.12f, "s_sting", .8f), (.24f, "s_sting", .9f), (.30f, "s_burst", 1f), (.45f, "s_boom", 1f) };
+    static readonly (float t, string n, float v)[] cues = { (.09f, "s_sting", .8f), (.18f, "s_sting", .9f), (.27f, "s_burst", 1f), (.36f, "s_boom", 1f) };
 
     public static void Init(string dir)
     {
@@ -72,6 +72,7 @@ static class Audio
 
     public static void OnEvent(GameEvent e)
     {
+        if (e.T >= 2 || e.K >= Kind.Inferno) { OnEventExt(e); return; }
         if (e.T == 1) { Play("l_ult_start", 1f, .02f, 0, 200); Play("l_hum", .45f, .03f, .2f, 300); return; }
         if (e.T == 2) { Play("l_ult_end", .8f, .03f, 0, 200); return; }
         switch (e.K)
@@ -84,7 +85,35 @@ static class Audio
         }
     }
     public static void Cine(float prev, float cur) { foreach (var c in cues) if (prev < c.t && cur >= c.t) Play(c.n, c.v, .02f, 0, 40); }   // synced to the ultimate's phases
-    public static void Ambient(Sim s, float dt)   // sparse crackle ticks while Overcharge is active (no constant loop)
+    static void OnEventExt(GameEvent e)   // newer characters: sound names follow the pattern <letter>_<event>
+    {
+        string k = e.K switch { Kind.Inferno => "i", Kind.Frost => "f", Kind.Void => "v", Kind.Venom => "n", Kind.Solar => "o", Kind.Mecha => "m", Kind.Cosmic => "c", Kind.Tempest => "t", _ => "l" };
+        switch (e.T)
+        {
+            case 0: Play("collide", .35f, .1f, 0, 70); Play(k + "_hit", .9f, .1f, 0, 60); break;
+            case 2: if (e.K == Kind.Lightning) Play("l_ult_end", .8f, .03f, 0, 200); else if (e.K == Kind.Tempest) Play("t_gust", 1f, .03f, 0, 200); else if (e.K == Kind.Mecha) Play("m_hit", .6f, .05f, 0, 200); break;
+            case 10: Play(e.K switch { Kind.Inferno => "i_ult", Kind.Frost => "f_freeze", Kind.Void => "v_hole", Kind.Venom => "n_cloud", Kind.Solar => "o_flare", Kind.Mecha => "m_over", Kind.Cosmic => "c_cast", _ => "t_cyclone" }, 1f, .02f, 0, 300); break;
+            case 11: Play(e.K switch { Kind.Solar => "o_burst", Kind.Mecha => "m_shield", Kind.Cosmic => "c_boost", _ => "t_tail" }, .8f, .05f, 0, 150); break;
+            case 12: Play("c_meteor", .7f, .08f, 0, 80); break;
+            case 13: Play("c_impact", 1f, .06f, 0, 80); break;
+            case 14: Play("f_shatter", 1f, .03f, 0, 200); break;
+            case 15: Play("v_implode", 1f, .02f, 0, 300); break;
+            case 16: Play("n_bubble", .6f, .05f, 0, 200); break;
+            case 17: Play(e.K == Kind.Inferno ? "i_crackle" : e.K == Kind.Venom ? "n_bubble" : "f_hit", .4f, .12f, 0, 120); break;
+        }
+    }
+    static float amb2, amb3;
+    public static void Ambient(Sim s, float dt)   // sparse ticks only (no loops): lightning crackle, burning crackle, poison bubbles
+    {
+        if (dt <= 0) return;
+        foreach (var b in s.Balls)
+        {
+            if (b.Alive && b.BurnT > 0 && (amb2 -= dt) <= 0) { amb2 = .4f + (float)rng.NextDouble() * .4f; Play("i_crackle", .25f, .15f, 0, 150); }
+            if (b.Alive && b.Poison > 0 && (amb3 -= dt) <= 0) { amb3 = .5f + (float)rng.NextDouble() * .5f; Play("n_bubble", .25f, .15f, 0, 150); }
+        }
+        AmbientLightning(s, dt);
+    }
+    static void AmbientLightning(Sim s, float dt)   // sparse crackle ticks while Overcharge is active (no constant loop)
     {
         if (dt <= 0) return;
         foreach (var b in s.Balls) if (b.Alive && b.D.K == Kind.Lightning && b.UltT > 0 && (amb -= dt) <= 0) { amb = .25f + (float)rng.NextDouble() * .3f; Play("l_crackle", .35f, .15f, 0, 90); }

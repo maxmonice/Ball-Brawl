@@ -5,7 +5,7 @@ using Timer = System.Windows.Forms.Timer;
 namespace BallBrawl;
 
 // ============================ LOGIC (no rendering) ============================
-enum Kind { Lightning, Sword, Juggernaut }
+enum Kind { Lightning, Sword, Juggernaut, Inferno, Frost, Void, Venom, Solar, Mecha, Cosmic, Tempest }
 record Def(Kind K, string Name, Color C, int HP, float R, string Passive, string Ult);
 
 static class Roster
@@ -21,17 +21,26 @@ static class Roster
         new(Kind.Juggernaut, "Juggernaut", Color.FromArgb(120, 50, 190), 300, 56,
             "None. 300 HP and 2x size. Collision damage starts at 0.1 and grows +0.1 per collision.",
             "None."),
-    };
+            new(Kind.Inferno, "Inferno Ball", Color.FromArgb(255, 90, 30), 100, 28, "Burning Impact: hits burn the target for 0.5 dmg/s for 3s (refreshes, no stacking).", "Supernova: fiery explosion deals 12 damage in a large radius and applies a stronger burn for 3s."),
+            new(Kind.Frost, "Frost Ball", Color.FromArgb(170, 220, 255), 120, 28, "Frostbite: each hit slows the target 5% (max 30%), lasting 2s after the latest hit.", "Absolute Zero: freezes the target for 1.5s, then deals 10 damage and releases ice shards."),
+            new(Kind.Void, "Void Ball", Color.FromArgb(40, 10, 60), 90, 28, "Void Drain: heals for 20% of the damage it actually deals (up to max HP).", "Black Hole: a 3s gravity field pulls opponents in and deals 2 damage every 0.5s inside it."),
+            new(Kind.Venom, "Venom Ball", Color.FromArgb(110, 220, 40), 110, 28, "Corrosion: each hit adds a poison stack (max 5); each stack deals 0.2 dmg/s for 3s (refreshes).", "Toxic Bloom: a 4s poison cloud deals 1 damage per second to opponents inside."),
+            new(Kind.Solar, "Solar Ball", Color.FromArgb(255, 200, 40), 100, 28, "Solar Charge: +10 energy per hit; at 100 the next hit releases a burst for 5 extra damage nearby.", "Solar Flare: a radiant explosion deals 15 damage within its radius."),
+            new(Kind.Mecha, "Mecha Ball", Color.FromArgb(150, 160, 175), 150, 28, "Adaptive Armor: after every 3 hits received, a shield cuts incoming collision damage 30% for 2s.", "Overdrive: for 4s, +40% movement speed and +50% outgoing collision damage."),
+            new(Kind.Cosmic, "Cosmic Ball", Color.FromArgb(170, 70, 200), 100, 28, "Cosmic Bounce: every 3rd hit grants +25% movement speed for 1.5s.", "Meteor Shower: for 3s, five meteors strike near the opponent, 4 damage each in their impact radius."),
+            new(Kind.Tempest, "Tempest Ball", Color.FromArgb(200, 245, 255), 85, 28, "Tailwind: +5% speed per hit (max 30%), lasting 2s after the latest hit.", "Cyclone: for 3s, +50% movement speed and +2 damage on collision hits."),
+        };
 }
 
 class Ball
 {
     public Def D; public PointF P, V; public float HP, Passive = 0.1f, Charge, UltT, Glow, Shock, SlashT = -1, Cd;
+    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter;   // status effects of the newer characters
     public int UltCount, Slashes; public string Label; public List<PointF> Trail = new();
     public float R => D.R; public bool Alive => HP > 0;
 }
 
-class Sim
+partial class Sim
 {
     public List<Ball> Balls = new(); public List<GameEvent> Events = new(); public bool Infinite;
     public float W = 900, H = 600, Hit, CineT = -1, Time; public PointF CineP; static Random Rng = new();
@@ -64,20 +73,21 @@ class Sim
         
         foreach (var b in Balls.Where(b => b.Alive))
         {
-            float sp = Math.Min(280 * SpeedMul * (b.D.K == Kind.Lightning && b.UltT > 0 ? 4.5f : 1f), 1500);
+            float sp = Math.Min(280 * SpeedMul * Speed(b) * (b.D.K == Kind.Lightning && b.UltT > 0 ? 4.5f : 1f), 1500);
             float m = MathF.Sqrt(b.V.X * b.V.X + b.V.Y * b.V.Y); b.V = new(b.V.X / m, b.V.Y / m);
             b.P = new(b.P.X + b.V.X * sp * dt, b.P.Y + b.V.Y * sp * dt);
             if (b.P.X < b.R) { b.P.X = b.R; b.V.X = MathF.Abs(b.V.X); }
             if (b.P.X > W - b.R) { b.P.X = W - b.R; b.V.X = -MathF.Abs(b.V.X); }
             if (b.P.Y < b.R) { b.P.Y = b.R; b.V.Y = MathF.Abs(b.V.Y); }
             if (b.P.Y > H - b.R) { b.P.Y = H - b.R; b.V.Y = -MathF.Abs(b.V.Y); }
-            b.Cd -= dt; b.Glow -= dt; b.Shock -= dt;
+            b.Cd -= dt; b.Glow -= dt; b.Shock -= dt; TickStatus(b, dt);
             if (b.SlashT >= 0) { b.SlashT += dt; if (b.SlashT > 0.25f) b.SlashT = -1; }
-            if (b.UltT > 0) { b.UltT -= dt; if (b.UltT <= 0) Events.Add(new GameEvent(2, Kind.Lightning, b.P, new(1, 0), false, 1)); }
+            if (b.UltT > 0) { b.UltT -= dt; if (b.UltT <= 0) Events.Add(new GameEvent(2, b.D.K, b.P, new(1, 0), false, 1)); }
             if (b.D.K == Kind.Lightning && b.UltT > 0) { b.Trail.Add(b.P); if (b.Trail.Count > 24) b.Trail.RemoveAt(0); }
             else if (b.Trail.Count > 0) b.Trail.RemoveAt(0);
             if (Infinite && b.HP < b.D.HP * 0.25f) b.HP = b.D.HP;   // decorative battle never ends
         }
+        TickWorld(dt);
         for (int i = 0; i < Balls.Count; i++) for (int j = i + 1; j < Balls.Count; j++)
         {
             Ball a = Balls[i], b = Balls[j]; if (!a.Alive || !b.Alive) continue;
@@ -98,7 +108,7 @@ class Sim
     }
 
     void Hitfx(Ball a, Ball b, PointF cp, bool ult)
-    { float dx = b.P.X - a.P.X, dy = b.P.Y - a.P.Y, d = MathF.Max(0.001f, MathF.Sqrt(dx * dx + dy * dy)); Events.Add(new GameEvent(0, a.D.K, cp, new(dx / d, dy / d), ult, a.R / 28f)); }
+    { float dx = b.P.X - a.P.X, dy = b.P.Y - a.P.Y, d = MathF.Max(0.001f, MathF.Sqrt(dx * dx + dy * dy)); Events.Add(new GameEvent(0, a.D.K, cp, new(dx / d, dy / d), ult, a.R / 28f, a, b)); }
 
     void Strike(Ball a, Ball b, PointF cp)  // a deals damage to b exactly once per collision
     {
@@ -116,12 +126,15 @@ class Sim
                 Hitfx(a, b, cp, ult);
                 if (ult) { CineT = 0; CineP = cp; } else Hit = 0.05f;
                 break;
-            default:
+            case Kind.Juggernaut:
                 dmg = a.Passive; a.Passive += 0.1f;
                 Hitfx(a, b, cp, false);
                 break;
+            default:   // newer characters: flat base hit, effects in Abilities.cs
+                dmg = Balance.BaseHit; Hitfx(a, b, cp, false);
+                break;
         }
-        b.HP -= dmg; if (b.HP < 0) b.HP = 0;
+        dmg = Incoming(a, b, dmg); float before = b.HP; b.HP = Math.Max(0, b.HP - dmg); AfterHit(a, b, before - b.HP, cp);
     }
 }
 
@@ -131,7 +144,7 @@ enum State { Menu, Select, Match, Results }
 class Game : Form
 {
     static readonly Color Theme = Color.FromArgb(0xED, 0xE8, 0xD0), Ink = Color.FromArgb(60, 50, 40);
-    Vfx vfx = new(); float prevCine = -1, curCine = -1, toast;
+    Vfx vfx = new(); ImpactFx impact = new(); float prevCine = -1, curCine = -1, toast;
     State st; Sim bg, match; Timer tm = new() { Interval = 15 }; Stopwatch sw = Stopwatch.StartNew(); double lastT;
     float fade; Point mouse; List<Def> pick = new(); Def view; Def winner; bool draw; float matchTime, endDelay; Random rng = new();
     Rectangle bPlay, bExit, bBack, bStart, bAgain, bMenu;
@@ -140,7 +153,7 @@ class Game : Form
     {
         Text = "Ball Brawl"; ClientSize = new(900, 600); MinimumSize = new(700, 520); DoubleBuffered = true; BackColor = Theme;
         tm.Tick += (_, _) => Tick(); tm.Start();
-        Audio.Init(Path.Combine(AppContext.BaseDirectory, "Assets", "Audio")); FormClosed += (_, _) => Audio.Shutdown(); KeyDown += OnKey;
+        Audio.Init(Path.Combine(AppContext.BaseDirectory, "Assets", "Audio")); FormClosed += (_, _) => { Audio.Shutdown(); impact.Dispose(); }; KeyDown += OnKey;
         MouseMove += (_, e) => mouse = e.Location; MouseDown += (_, e) => Click(e.Location); Resize += (_, _) => Layout();
         Go(State.Menu);
     }
@@ -150,7 +163,8 @@ class Game : Form
     void OnKey(object o, KeyEventArgs e)   // Up/Down = master volume, M = mute
     {
         if (e.KeyCode == Keys.Up) Audio.Master = Math.Min(1, Audio.Master + .1f); else if (e.KeyCode == Keys.Down) Audio.Master = Math.Max(0, Audio.Master - .1f);
-        else if (e.KeyCode == Keys.M) Audio.Master = Audio.Master > 0 ? 0 : .8f; else return; toast = 1.5f;
+        else if (e.KeyCode == Keys.M) Audio.Master = Audio.Master > 0 ? 0 : .8f;
+        else if (e.KeyCode == Keys.F) Settings.ReduceFlash = !Settings.ReduceFlash; else if (e.KeyCode == Keys.G) Settings.Shake = Settings.Shake > .6f ? .5f : Settings.Shake > .1f ? 0f : 1f; else return; toast = 1.5f;
     }
 
     void Layout()
@@ -164,7 +178,7 @@ class Game : Form
 
     void Go(State s)
     {
-        st = s; fade = 1; Layout(); vfx.Clear(); prevCine = -1; curCine = -1;
+        st = s; fade = 1; Layout(); vfx.Clear(); impact.Clear(); prevCine = -1; curCine = -1;
         if (s != State.Menu) bg = null;                                  // stop background battle
         if (s == State.Menu) { match = null; bg = NewBg(); }
         if (s == State.Select) { match = null; pick.Clear(); view = Roster.All[0]; }
@@ -196,15 +210,15 @@ class Game : Form
 
     void StartMatch()
     {
-        var ar = Arena(); match = new Sim(pick.ToArray(), false, ar.Width, ar.Height); matchTime = 0; endDelay = 0; Audio.Play("match_start", 1f); vfx.Clear(); st = State.Match; fade = 1;
+        var ar = Arena(); match = new Sim(pick.ToArray(), false, ar.Width, ar.Height); matchTime = 0; endDelay = 0; Audio.Play("match_start", 1f); vfx.Clear(); impact.Clear(); st = State.Match; fade = 1;
     }
 
     bool Pump(Sim s, float dt)   // drains gameplay events into the renderer's effect system
     {
-        Audio.Scale = ReferenceEquals(s, bg) ? .25f : 1f; foreach (var e in s.Events) { vfx.Handle(e); Audio.OnEvent(e); } s.Events.Clear(); if (s.CineT >= 0) Audio.Cine(prevCine, s.CineT);
-        if (prevCine >= 0 && s.CineT < 0) { vfx.Flash(.9f, Color.White); vfx.Shake(.6f); }   // snap-back flash
+        Audio.Scale = ReferenceEquals(s, bg) ? .25f : 1f; foreach (var e in s.Events) { vfx.Handle(e); Audio.OnEvent(e); if (e.T == 0 && e.K == Kind.Sword) impact.Start(e, (float)sw.Elapsed.TotalSeconds); } s.Events.Clear(); if (s.CineT >= 0) Audio.Cine(prevCine, s.CineT);
+        if (prevCine >= 0 && s.CineT < 0) { vfx.Shake(.6f); }   // snap-back flash
         prevCine = s.CineT; float vdt = s.Hit > 0 ? 0 : dt;   // effects freeze together with hit-stop
-        vfx.Ambient(s, vdt); Audio.Ambient(s, vdt); vfx.Update(vdt); return true;
+        vfx.Ambient(s, vdt); Audio.Ambient(s, vdt); vfx.Update(vdt); impact.Track(s, dt, (float)sw.Elapsed.TotalSeconds); impact.Update(dt); return true;
     }
 
     void Tick()
@@ -223,7 +237,7 @@ class Game : Form
     }
 
     Rectangle ChipRect(int i) => new((ClientSize.Width - 5 * 48) / 2 + i * 48, 475, 40, 40);
-    Rectangle CardRect(int i) { int w = 200, gap = 24, n = Roster.All.Length; int x0 = (ClientSize.Width - (n * w + (n - 1) * gap)) / 2; return new(x0 + i * (w + gap), 90, w, 190); }
+    Rectangle CardRect(int i) { int cols = 6, w = 128, h = 98, gap = 10, x0 = (ClientSize.Width - (cols * (w + gap) - gap)) / 2; return new(x0 + i % cols * (w + gap), 68 + i / cols * (h + gap), w, h); }
 
     // ---- drawing ----
     protected override void OnPaint(PaintEventArgs e)
@@ -239,7 +253,7 @@ class Game : Form
             case State.Match: if (match != null) DrawWorld(g, match, true); break;
             case State.Results: DrawResults(g); break;
         }
-        if (toast > 0) Txt(g, $"Volume {Audio.Master * 100:0}%  (Up/Down, M = mute)", 11, ClientSize.Width / 2, ClientSize.Height - 18);
+        if (toast > 0) Txt(g, $"Volume {Audio.Master * 100:0}% (Up/Down, M)   Reduce flashing: {(Settings.ReduceFlash ? "ON" : "off")} (F)   Shake {Settings.Shake * 100:0}% (G)", 11, ClientSize.Width / 2, ClientSize.Height - 18);
         if (fade > 0) { using var br = new SolidBrush(Color.FromArgb((int)(fade * 255), Theme)); g.FillRectangle(br, ClientRectangle); }
     }
 
@@ -270,8 +284,8 @@ class Game : Form
             var d = Roster.All[i]; var r = CardRect(i); bool sel = pick.Contains(d);
             using (var br = new SolidBrush(Color.FromArgb(sel ? 255 : 200, 250, 247, 235))) g.FillRectangle(br, r);
             using (var pen = new Pen(sel ? Color.OrangeRed : Ink, sel ? 4 : 1)) g.DrawRectangle(pen, r);
-            DrawBall(g, new Ball { D = d, HP = d.HP, P = new(r.X + 100, r.Y + 85) }, 0, d.K == Kind.Juggernaut ? 0.9f : 1.4f);
-            Txt(g, d.Name, 13, r.X + 100, r.Bottom - 22, true); int cnt = pick.Count(x => x == d); if (cnt > 0) Txt(g, "x" + cnt, 14, r.Right - 24, r.Y + 20, true, Color.OrangeRed);
+            DrawBall(g, new Ball { D = d, HP = d.HP, P = new(r.X + 64, r.Y + 50) }, 0, d.K == Kind.Juggernaut ? 0.38f : 0.75f);
+            Txt(g, d.Name, 9, r.X + 64, r.Bottom - 12, true); int cnt = pick.Count(x => x == d); if (cnt > 0) Txt(g, "x" + cnt, 14, r.Right - 24, r.Y + 20, true, Color.OrangeRed);
         }
         if (view != null)
         {
@@ -303,17 +317,18 @@ class Game : Form
     void DrawWorld(Graphics g, Sim s, bool hud)
     {
         float t = s.CineT; curCine = t; int mode = 0;
-        if (t >= 0) { if (t < .12f) mode = 1; else if (t < .18f) mode = 2; else if (t < .24f) mode = 1; else if (t < .30f) mode = 2; }
+        // the old full-arena black/white inversion is replaced by ImpactFx's localized panels (no strobing)
         Color bgc = mode == 1 ? Color.White : mode == 2 ? Color.Black : Theme; var ar = hud ? Arena() : ClientRectangle;
         if (hud) { using var fb = new SolidBrush(bgc); g.FillRectangle(fb, ar); } else g.Clear(bgc);
         g.SetClip(ar); g.TranslateTransform(ar.X + (hud ? vfx.ShakeX : 0), ar.Y + (hud ? vfx.ShakeY : 0));
         float z = 1; var sh = PointF.Empty;
-        if (t >= .45f) { z = 1 + 0.5f * MathF.Sin(MathF.PI * (t - .45f) / .2f); sh = new(rng.Next(-4, 5), rng.Next(-4, 5)); }
+        if (t >= .36f && t < .61f) { z = 1 + 0.5f * MathF.Sin(MathF.PI * (t - .36f) / .25f); sh = new(rng.Next(-4, 5) * Settings.Shake, rng.Next(-4, 5) * Settings.Shake); }   // punch-in during the burst
         g.TranslateTransform(s.CineP.X + sh.X, s.CineP.Y + sh.Y); g.ScaleTransform(z, z); g.TranslateTransform(-s.CineP.X, -s.CineP.Y);
-        if (mode == 0) vfx.DrawBack(g);
+        if (mode == 0) { CharArt.World(g, s, (float)sw.Elapsed.TotalSeconds); vfx.DrawBack(g); }
         foreach (var b in s.Balls.Where(b => b.Alive)) DrawBall(g, b, mode, 1);
         if (mode == 0) vfx.DrawFront(g);
-        if (t >= .30f && t < .45f) DrawBurst(g, s.CineP, (t - .30f) / .15f);
+        impact.Draw(g, new RectangleF(0, 0, s.W, s.H), (float)sw.Elapsed.TotalSeconds, t >= 0);
+        
         g.ResetTransform();
         vfx.DrawFlash(g, ar); g.ResetClip(); if (hud) { using var bp = new Pen(Ink, 4); g.DrawRectangle(bp, ar); DrawHud(g, s); }
     }
@@ -342,11 +357,12 @@ class Game : Form
             g.FillPath(pg, path); using var op = new Pen(Color.FromArgb(70, 60, 50), 2); g.DrawEllipse(op, rc);
             if (b.Shock > 0) { using var sp = new Pen(Color.Cyan, 2); var q = new Random((int)(b.Shock * 20)); for (int i = 0; i < 6; i++) { double a = q.NextDouble() * 6.28; g.DrawLine(sp, b.P.X + (float)Math.Cos(a) * r, b.P.Y + (float)Math.Sin(a) * r, b.P.X + (float)Math.Cos(a + .3) * (r + 14), b.P.Y + (float)Math.Sin(a + .3) * (r + 14)); } }
         }
+        if (mode == 0) { float tt = (float)sw.Elapsed.TotalSeconds; CharArt.Status(g, b, tt); if (b.D.K >= Kind.Inferno) CharArt.Body(g, b, tt); }
         if (b.D.K == Kind.Sword)   // weapon is its own component (Sword.cs), drawn after the ball so it never hides behind it
         {
-            float t = (float)sw.Elapsed.TotalSeconds, rest = -0.9f + 0.07f * MathF.Sin(t * 3 + b.D.HP), sc = r / 28f, ang = rest; bool slashing = b.SlashT >= 0;
+            float t = (float)sw.Elapsed.TotalSeconds, rest = SwordArt.Rest(b, t), sc = r / 28f, ang = rest; bool slashing = b.SlashT >= 0;
             if (slashing && curCine >= 0) { ang = rest - 0.9f + 0.03f * MathF.Sin(t * 90); sc *= 1.3f; }   // ultimate freeze: sword cocked back, enlarged
-            else if (slashing) { float p = b.SlashT / 0.25f; ang = rest + (p < .12f ? -0.6f * p / .12f : -0.6f + (MathF.PI * 2 + 0.6f) * (1 - MathF.Pow(1 - (p - .12f) / .88f, 2))); }   // wind-up, then fast 360 swing
+            else if (slashing) { float p = b.SlashT / 0.25f; ang = SwordArt.SlashAngle(rest, b.SlashT); }   // wind-up, then fast 360 swing
             if (slashing && mode == 0 && curCine < 0) { SwordArt.DrawGhost(g, b.P, sc, ang - 0.3f, 90); SwordArt.DrawGhost(g, b.P, sc, ang - 0.6f, 45); vfx.DrawSlash(g, b, ang, SwordArt.Reach(r) * .85f); }
             SwordArt.Draw(g, b.P, sc, ang, mode);
         }
@@ -363,12 +379,13 @@ class Game : Form
             float dmg = b.Passive * (b.D.K == Kind.Lightning && b.UltT > 0 ? 2 : 1), pct; string ult;
             if (b.D.K == Kind.Lightning) { if (b.UltT > 0) { pct = 100; ult = $"ACTIVE {b.UltT:0.0}s"; } else { pct = b.Charge; ult = $"{b.Charge:0}%"; } }
             else if (b.D.K == Kind.Sword) { pct = b.Slashes * 20; ult = $"{pct:0}% ({b.Slashes}/5)"; }
+            else if (b.D.K >= Kind.Inferno) { pct = b.UltT > 0 ? 100 : b.Charge; ult = b.UltT > 0 ? $"ACTIVE {b.UltT:0.0}s" : $"{b.Charge:0}%"; dmg = Balance.BaseHit; }
             else { pct = 0; ult = "No ultimate"; }
             using var f = new Font("Segoe UI", 11, FontStyle.Bold); using var fs = new Font("Segoe UI", 10); using var ink = new SolidBrush(b.Alive ? Ink : Color.Gray);
             g.DrawString(b.Label + (b.Alive ? "" : " - OUT"), f, ink, x, y);
             g.DrawString($"Health  {b.HP:0.0} / {b.D.HP}", fs, ink, x, y + 30); Bar(g, x, y + 52, pw, 14, b.HP / b.D.HP, Color.LimeGreen);
             g.DrawString("Ultimate  " + ult, fs, ink, x, y + 78); Bar(g, x, y + 100, pw, 14, pct / 100, b.D.K == Kind.Sword ? Color.Gray : b.D.C);
-            g.DrawString($"Damage  {dmg:0.00}", fs, ink, x, y + 126);
+            g.DrawString($"Damage  {dmg:0.00}  {CharArt.Tags(b)}", fs, ink, x, y + 126);
         }
     }
 
