@@ -35,7 +35,7 @@ static class Roster
 class Ball
 {
     public Def D; public PointF P, V; public float HP, Passive = 0.1f, Charge, UltT, Glow, Shock, SlashT = -1, Cd;
-    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter, UltSlash; public float PendingHeal;   // status effects of the newer characters
+    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter, UltSlash; public float PendingHeal, DamageDealt; public int Kills; public Ball LastHit;   // match statistics   // status effects of the newer characters
     public int UltCount, Slashes; public string Label; public List<PointF> Trail = new();
     public float R => D.R; public bool Alive => HP > 0;
 }
@@ -134,16 +134,18 @@ partial class Sim
                 dmg = Balance.BaseHit; Hitfx(a, b, cp, false);
                 break;
         }
-        dmg = Incoming(a, b, dmg); AfterHit(a, b, ApplyDamage(b, dmg), cp);
+        dmg = Incoming(a, b, dmg); AfterHit(a, b, ApplyDamage(b, dmg, a), cp);
     }
 }
 
 // ============================ UI / RENDERING ============================
+record BallResult(string Name, Def D, float Damage, int Kills, bool Won);   // snapshot shown on the results screen
 enum State { Menu, Select, Match, Results }
 
 class Game : Form
 {
     static readonly Color Theme = Color.FromArgb(0xED, 0xE8, 0xD0), Ink = Color.FromArgb(0xED, 0xE8, 0xD0);
+    List<BallResult> results = new();
     Vfx vfx = new(); ImpactFx impact = new(); float prevCine = -1, curCine = -1, toast;
     State st; Sim bg, match; Timer tm = new() { Interval = 15 }; Stopwatch sw = Stopwatch.StartNew(); double lastT;
     float fade; Point mouse; List<Def> pick = new(); Def view; Def winner; bool draw; float matchTime, endDelay; Random rng = new();
@@ -230,7 +232,7 @@ class Game : Form
             if (!match.Over || match.CineT >= 0) { match.Step(dt); matchTime += dt; }
             else if ((endDelay += dt) > 1.2f)
             {
-                Audio.Play("match_end", 1f); winner = match.Winner?.D; draw = winner == null; match = null; st = State.Results; fade = 1; Layout();
+                Audio.Play("match_end", 1f); results = match.Balls.Select(x => new BallResult(x.Label ?? x.D.Name, x.D, x.DamageDealt, x.Kills, x.Alive)).ToList(); winner = match.Winner?.D; draw = winner == null; match = null; st = State.Results; fade = 1; Layout();
             }
         }
         Invalidate();
@@ -306,10 +308,21 @@ class Game : Form
 
     void DrawResults(Graphics g)
     {
-        int cx = ClientSize.Width / 2, cy = ClientSize.Height / 2;
-        Txt(g, draw ? "DRAW" : "VICTORY", 44, cx, cy - 170, true);
-        if (!draw) { DrawBall(g, new Ball { D = winner, HP = 1, P = new(cx, cy - 80) }, 0, 1.2f); Txt(g, winner.Name + " wins!", 20, cx, cy + 10, true); }
-        Txt(g, $"Match time: {matchTime:0.0}s", 12, cx, cy + 50);
+        int cx = ClientSize.Width / 2, oy = ClientSize.Height / 2 - 300; float t = (float)sw.Elapsed.TotalSeconds;
+        Txt(g, draw ? "DRAW" : "VICTORY", 30, cx, oy + 34, true);
+        if (!draw) { DrawBall(g, new Ball { D = winner, HP = 1, P = new(cx, oy + 96) }, 0, winner.K == Kind.Juggernaut ? 0.5f : 0.85f); Txt(g, winner.Name + " wins!", 16, cx, oy + 150, true); }
+        Txt(g, $"Match time: {matchTime:0.0}s", 10, cx, oy + 174);
+        int rows = results.Count, rh = 26, top = oy + 190, px = cx - 300, y0 = top + 24 + rh / 2 - 6;
+        Pix.Panel(g, new Rectangle(px, top, 600, 24 + rh * (rows + 1) + 6));
+        Txt(g, "BALL", 10, px + 140, y0, true, Pix.Gold); Txt(g, "DAMAGE", 10, px + 330, y0, true, Pix.Gold); Txt(g, "KILLS", 10, px + 430, y0, true, Pix.Gold); Txt(g, "RESULT", 10, px + 520, y0, true, Pix.Gold);
+        for (int i = 0; i < rows; i++)   // one row per ball: total damage dealt and kills
+        {
+            var r = results[i]; int y = y0 + rh * (i + 1);
+            if (r.Won) Pix.Panel(g, new Rectangle(px + 10, y - rh / 2 - 1, 580, rh), true, t);
+            using (var cb = new SolidBrush(r.D.C)) g.FillRectangle(cb, px + 20, y - 6, 12, 12);
+            Txt(g, r.Name, 10, px + 140, y, r.Won); Txt(g, r.Damage.ToString("0.0"), 10, px + 330, y, r.Won); Txt(g, r.Kills.ToString(), 10, px + 430, y, r.Won);
+            Txt(g, r.Won ? "WINNER" : "OUT", 10, px + 520, y, true, r.Won ? Pix.Gold : Color.FromArgb(220, 130, 130));
+        }
         Btn(g, bAgain, "Pick New Characters", true); Btn(g, bMenu, "Main Menu", true);
     }
 

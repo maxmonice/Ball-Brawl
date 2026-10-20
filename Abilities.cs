@@ -9,15 +9,17 @@ partial class Sim
     public List<Zone> Zones = new(); public List<Meteor> Meteors = new();
     static bool IsNew(Kind k) => k >= Kind.Inferno;
     void Ev(int t, Kind k, PointF p, float scale = 1, bool ult = false) => Events.Add(new GameEvent(t, k, p, new(1, 0), ult, scale));
-    void Dot(Ball o, float d) => ApplyDamage(o, d);
+    void Dot(Ball o, float d, Ball by = null) => ApplyDamage(o, d, by ?? o.LastHit);   // damage-over-time is credited to whoever last hit the target
 
     // The single place health is reduced. Returns the HP actually removed (never more than the target had), so lifesteal can't exceed real damage.
     // Dead targets take nothing. Float residue (e.g. 0.3-0.1-0.1-0.1 = 3e-8) is snapped to exactly 0 so lethal damage always kills.
-    float ApplyDamage(Ball o, float d)
+    float ApplyDamage(Ball o, float d, Ball by = null)
     {
         if (d <= 0 || !o.Alive) return 0;
         float before = o.HP, after = before - d; if (after <= 1e-5f) after = 0;
-        o.HP = after; return before - after;
+        o.HP = after; float actual = before - after;
+        if (by != null && by != o) { by.DamageDealt += actual; o.LastHit = by; if (after == 0) by.Kills++; }   // match stats: real damage only, one kill per death
+        return actual;
     }
 
     // Lifesteal is applied after BOTH sides of a collision have dealt damage, and only to a ball that is still alive,
@@ -50,7 +52,7 @@ partial class Sim
     }
 
     void Area(Ball owner, PointF c, float rad, float dmg, Action<Ball> also = null)
-    { foreach (var o in Balls) { if (o == owner || !o.Alive || Dist(o.P, c) > rad + o.R) continue; Dot(o, dmg); also?.Invoke(o); } }
+    { foreach (var o in Balls) { if (o == owner || !o.Alive || Dist(o.P, c) > rad + o.R) continue; Dot(o, dmg, owner); also?.Invoke(o); } }
 
     // passives, receive-side effects and ultimate charging; `actual` = HP really removed
     void AfterHit(Ball a, Ball b, float actual, PointF cp)
@@ -143,7 +145,7 @@ partial class Sim
                 float d = Dist(o.P, z.P); if (o == z.Owner || !o.Alive || d > z.R + o.R || d < 12) continue;
                 float k = Math.Min(Balance.VoidPull * dt, d - 12) / d; o.P = new(o.P.X + (z.P.X - o.P.X) * k, o.P.Y + (z.P.Y - o.P.Y) * k);   // never pulled past the centre
             }
-            while (z.Tick >= iv) { z.Tick -= iv; float dmg = venom ? Balance.BloomDps : Balance.VoidTickDmg; foreach (var o in Balls) if (o != z.Owner && o.Alive && Dist(o.P, z.P) <= z.R + o.R) Dot(o, dmg); }
+            while (z.Tick >= iv) { z.Tick -= iv; float dmg = venom ? Balance.BloomDps : Balance.VoidTickDmg; foreach (var o in Balls) if (o != z.Owner && o.Alive && Dist(o.P, z.P) <= z.R + o.R) Dot(o, dmg, z.Owner); }
             if (z.Age >= z.Life) { Ev(venom ? 16 : 15, z.K, z.P, z.R); Zones.RemoveAt(i); }
         }
         for (int i = Meteors.Count - 1; i >= 0; i--)
