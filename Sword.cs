@@ -14,8 +14,8 @@ static class SwordArt
     static GraphicsPath Rect(float x, float y, float w, float h) { var p = new GraphicsPath(); p.AddRectangle(new RectangleF(x, y, w, h)); return p; }
     static GraphicsPath Ell(float x, float y, float d) { var p = new GraphicsPath(); p.AddEllipse(x, y, d, d); return p; }
     static readonly GraphicsPath[] Parts = { Grip, Pommel, Guard, Blade };
-    static readonly LinearGradientBrush BladeB = new(new RectangleF(34, -4, 42, 8), Color.FromArgb(245, 250, 255), Color.FromArgb(140, 160, 190), 90f);
-    static readonly LinearGradientBrush GoldB = new(new RectangleF(11, -10, 24, 20), Color.FromArgb(255, 225, 120), Color.FromArgb(170, 120, 30), 90f);
+    static readonly SolidBrush BladeB = new(Color.FromArgb(226, 234, 248));
+    static readonly SolidBrush GoldB = new(Color.FromArgb(244, 202, 74));
     static readonly SolidBrush GripB = new(Color.FromArgb(55, 40, 90)), ShadeB = new(Color.FromArgb(110, 90, 110, 150)), JewelB = new(Color.Crimson), GhostB = new(Color.White);
     static readonly Pen Edge = new(Color.FromArgb(40, 35, 60), 1.4f) { LineJoin = LineJoin.Round }, Shine = new(Color.White, 1.1f), Wrap = new(Color.FromArgb(150, 130, 200), 1f),
         Fuller = new(Color.FromArgb(120, 150, 190), 1f), OutW = new(Color.White, 3.5f) { LineJoin = LineJoin.Round }, OutB = new(Color.Black, 3.5f) { LineJoin = LineJoin.Round };

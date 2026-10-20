@@ -33,12 +33,14 @@ class ImpactFx : IDisposable
         imps.Add(new Impact { A = e.Src, B = e.Dst, P = e.P, Dir = SwordArt.Rest(e.Src, t) + MathF.PI / 2, Life = e.Ult ? .65f : .32f, Ult = e.Ult, Seed = rng.Next(1000) });   // Dir = tangent of the swing
     }
 
+    public void Finish() { foreach (var m in imps) m.Age = m.Life; }   // ultimate complete
+
     public void Track(Sim s, float dt, float t)   // sample the real sword pose while it swings -> afterimages
     {
         snapT -= dt; if (s.Hit > 0 || s.CineT >= 0 || snapT > 0) return;
         foreach (var b in s.Balls)
         {
-            if (!b.Alive || b.D.K != Kind.Sword || b.SlashT < 0) continue;
+            if (!b.Alive || b.D.K != Kind.Sword || b.SlashT < 0 || !b.UltSlash) continue;   // ultimate slashes only
             snaps[sn] = new Snap { P = b.P, R = b.R, Ang = SwordArt.SlashAngle(SwordArt.Rest(b, t), b.SlashT), Tint = sn % 5, On = true }; sn = (sn + 1) % snaps.Length; snapT = .02f;
         }
     }

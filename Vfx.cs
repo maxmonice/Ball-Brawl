@@ -189,7 +189,7 @@ class Vfx
         for (int i = 0; i < Cap; i++)
         {
             ref var q = ref ps[i]; if (q.Age >= q.Life) continue; float k = q.Age / q.Life; int al = A(255 * (1 - k) * (1 - k)); if (al <= 0) continue;
-            if (q.Glow) { br.Color = Color.FromArgb(al, q.C); float s = q.Size * (1 - .5f * k); g.FillEllipse(br, q.X - s, q.Y - s, 2 * s, 2 * s); }
+            if (q.Glow) { br.Color = Color.FromArgb(al, q.C); float s = q.Size * (1 - .5f * k); g.FillRectangle(br, Pix.Snap(q.X) - s, Pix.Snap(q.Y) - s, 2 * s, 2 * s); }
             else { pen.Color = Color.FromArgb(al, q.C); pen.Width = Math.Max(1, q.Size * (1 - k)); g.DrawLine(pen, q.X, q.Y, q.X - q.VX * q.Tail, q.Y - q.VY * q.Tail); }
         }
     }

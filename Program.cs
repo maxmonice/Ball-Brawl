@@ -35,7 +35,7 @@ static class Roster
 class Ball
 {
     public Def D; public PointF P, V; public float HP, Passive = 0.1f, Charge, UltT, Glow, Shock, SlashT = -1, Cd;
-    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter;   // status effects of the newer characters
+    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter, UltSlash;   // status effects of the newer characters
     public int UltCount, Slashes; public string Label; public List<PointF> Trail = new();
     public float R => D.R; public bool Alive => HP > 0;
 }
@@ -67,7 +67,7 @@ partial class Sim
 
     public void Step(float dt)
     {
-        if (CineT >= 0) { CineT += dt; if (CineT > 0.65f) CineT = -1; return; } // cinematic freezes sim
+        if (CineT >= 0) { CineT += dt; if (CineT > 0.65f) { CineT = -1; Events.Add(new GameEvent(21, Kind.Sword, CineP, new(1, 0), true, 1)); } return; } // cinematic freezes sim
         if (Hit > 0) { Hit -= dt; return; }                                       // hit-stop
         Time += dt; foreach (var k in Pcd.Keys.ToList()) Pcd[k] -= dt;
         
@@ -122,9 +122,9 @@ partial class Sim
                 break;
             case Kind.Sword:
                 if (a.Slashes >= 5) { ult = true; dmg = 5 * a.Passive; a.Slashes = 0; } else { dmg = a.Passive; a.Slashes++; }
-                a.Passive += 0.4f; a.SlashT = 0;
+                a.Passive += 0.4f; a.SlashT = 0; a.UltSlash = ult;
                 Hitfx(a, b, cp, ult);
-                if (ult) { CineT = 0; CineP = cp; } else Hit = 0.05f;
+                if (ult) { CineT = 0; CineP = cp; Events.Add(new GameEvent(20, Kind.Sword, cp, new(1, 0), true, 1, a, b)); } else Hit = 0.05f;
                 break;
             case Kind.Juggernaut:
                 dmg = a.Passive; a.Passive += 0.1f;
@@ -143,7 +143,7 @@ enum State { Menu, Select, Match, Results }
 
 class Game : Form
 {
-    static readonly Color Theme = Color.FromArgb(0xED, 0xE8, 0xD0), Ink = Color.FromArgb(60, 50, 40);
+    static readonly Color Theme = Color.FromArgb(0xED, 0xE8, 0xD0), Ink = Color.FromArgb(0xED, 0xE8, 0xD0);
     Vfx vfx = new(); ImpactFx impact = new(); float prevCine = -1, curCine = -1, toast;
     State st; Sim bg, match; Timer tm = new() { Interval = 15 }; Stopwatch sw = Stopwatch.StartNew(); double lastT;
     float fade; Point mouse; List<Def> pick = new(); Def view; Def winner; bool draw; float matchTime, endDelay; Random rng = new();
@@ -153,12 +153,12 @@ class Game : Form
     {
         Text = "Ball Brawl"; ClientSize = new(900, 600); MinimumSize = new(700, 520); DoubleBuffered = true; BackColor = Theme;
         tm.Tick += (_, _) => Tick(); tm.Start();
-        Audio.Init(Path.Combine(AppContext.BaseDirectory, "Assets", "Audio")); FormClosed += (_, _) => { Audio.Shutdown(); impact.Dispose(); }; KeyDown += OnKey;
+        Audio.Init(Path.Combine(AppContext.BaseDirectory, "Assets", "Audio")); FormClosed += (_, _) => { Audio.Shutdown(); impact.Dispose(); Pix.Dispose(); }; KeyDown += OnKey;
         MouseMove += (_, e) => mouse = e.Location; MouseDown += (_, e) => Click(e.Location); Resize += (_, _) => Layout();
         Go(State.Menu);
     }
 
-    Rectangle Arena() { int w = Math.Max(240, ClientSize.Width - 500), h = Math.Min(ClientSize.Height - 100, 400); return new((ClientSize.Width - w) / 2, (ClientSize.Height - h) / 2, w, h); }
+    Rectangle Arena() { int w = Math.Max(243, ClientSize.Width - 500), h = Math.Min(ClientSize.Height - 100, 400); w -= w % 9; h -= h % 9; return new((ClientSize.Width - w) / 2 / 3 * 3, (ClientSize.Height - h) / 2 / 3 * 3, w, h); }   // multiples of the art-pixel grid
 
     void OnKey(object o, KeyEventArgs e)   // Up/Down = master volume, M = mute
     {
@@ -215,7 +215,7 @@ class Game : Form
 
     bool Pump(Sim s, float dt)   // drains gameplay events into the renderer's effect system
     {
-        Audio.Scale = ReferenceEquals(s, bg) ? .25f : 1f; foreach (var e in s.Events) { vfx.Handle(e); Audio.OnEvent(e); if (e.T == 0 && e.K == Kind.Sword) impact.Start(e, (float)sw.Elapsed.TotalSeconds); } s.Events.Clear(); if (s.CineT >= 0) Audio.Cine(prevCine, s.CineT);
+        Audio.Scale = ReferenceEquals(s, bg) ? .25f : 1f; foreach (var e in s.Events) { vfx.Handle(e); Audio.OnEvent(e); if (e.T == 20) impact.Start(e, (float)sw.Elapsed.TotalSeconds); else if (e.T == 21) impact.Finish(); } s.Events.Clear(); if (s.CineT >= 0) Audio.Cine(prevCine, s.CineT);
         if (prevCine >= 0 && s.CineT < 0) { vfx.Shake(.6f); }   // snap-back flash
         prevCine = s.CineT; float vdt = s.Hit > 0 ? 0 : dt;   // effects freeze together with hit-stop
         vfx.Ambient(s, vdt); Audio.Ambient(s, vdt); vfx.Update(vdt); impact.Track(s, dt, (float)sw.Elapsed.TotalSeconds); impact.Update(dt); return true;
@@ -242,7 +242,8 @@ class Game : Form
     // ---- drawing ----
     protected override void OnPaint(PaintEventArgs e)
     {
-        var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias; g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit; g.Clear(Theme);
+        var g = e.Graphics; g.SmoothingMode = SmoothingMode.None; g.InterpolationMode = InterpolationMode.NearestNeighbor; g.PixelOffsetMode = PixelOffsetMode.Half; g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.SingleBitPerPixelGridFit;
+        g.Clear(Theme); Pix.Scene(g, ClientSize, st == State.Match ? Arena() : Rectangle.Empty, (float)sw.Elapsed.TotalSeconds);
         switch (st)
         {
             case State.Menu:
@@ -257,18 +258,17 @@ class Game : Form
         if (fade > 0) { using var br = new SolidBrush(Color.FromArgb((int)(fade * 255), Theme)); g.FillRectangle(br, ClientRectangle); }
     }
 
-    void Txt(Graphics g, string s, float size, float x, float y, bool bold = false, Color? c = null)
+    void Txt(Graphics g, string s, float size, float x, float y, bool bold = false, Color? c = null)   // pixel-style text: crisp mono font with a dark outline
     {
-        using var f = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
-        using var br = new SolidBrush(c ?? Ink); var sz = g.MeasureString(s, f); g.DrawString(s, f, br, x - sz.Width / 2, y - sz.Height / 2);
+        using var f = new Font("Consolas", size, bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point); var sz = g.MeasureString(s, f); float px = x - sz.Width / 2, py = y - sz.Height / 2;
+        using (var sh = new SolidBrush(Pix.Ink)) foreach (var (dx, dy) in new[] { (-2, 0), (2, 0), (0, -2), (0, 2), (2, 2) }) g.DrawString(s, f, sh, px + dx, py + dy);
+        using var fg = new SolidBrush(c ?? Pix.Cream); g.DrawString(s, f, fg, px, py);
     }
 
-    void Btn(Graphics g, Rectangle r, string t, bool on)
+    void Btn(Graphics g, Rectangle r, string t, bool on)   // hover lifts the button
     {
-        bool hov = on && r.Contains(mouse);
-        using var br = new SolidBrush(!on ? Color.FromArgb(190, 185, 170) : hov ? Color.FromArgb(90, 75, 60) : Ink);
-        using var path = Round(r, 14); g.FillPath(br, path);
-        Txt(g, t, 16, r.X + r.Width / 2, r.Y + r.Height / 2, true, Theme);
+        bool hov = on && r.Contains(mouse); var rr = hov ? new Rectangle(r.X, r.Y - 3, r.Width, r.Height) : r;
+        Pix.Button(g, rr, on, hov); Txt(g, t, 16, rr.X + rr.Width / 2, rr.Y + rr.Height / 2 - 2, true, on ? Color.White : Color.FromArgb(200, 196, 210));
     }
     static GraphicsPath Round(Rectangle r, int d)
     {
@@ -282,8 +282,7 @@ class Game : Form
         for (int i = 0; i < Roster.All.Length; i++)
         {
             var d = Roster.All[i]; var r = CardRect(i); bool sel = pick.Contains(d);
-            using (var br = new SolidBrush(Color.FromArgb(sel ? 255 : 200, 250, 247, 235))) g.FillRectangle(br, r);
-            using (var pen = new Pen(sel ? Color.OrangeRed : Ink, sel ? 4 : 1)) g.DrawRectangle(pen, r);
+            Pix.Panel(g, r, sel || r.Contains(mouse), (float)sw.Elapsed.TotalSeconds);
             DrawBall(g, new Ball { D = d, HP = d.HP, P = new(r.X + 64, r.Y + 50) }, 0, d.K == Kind.Juggernaut ? 0.38f : 0.75f);
             Txt(g, d.Name, 9, r.X + 64, r.Bottom - 12, true); int cnt = pick.Count(x => x == d); if (cnt > 0) Txt(g, "x" + cnt, 14, r.Right - 24, r.Y + 20, true, Color.OrangeRed);
         }
@@ -291,12 +290,12 @@ class Game : Form
         {
             int idx = Array.IndexOf(Roster.All, view); var hov = Enumerable.Range(0, Roster.All.Length).Where(i => CardRect(i).Contains(mouse)).ToList();
             if (hov.Count > 0) view = Roster.All[hov[0]];
-            var box = new RectangleF(ClientSize.Width / 2 - 330, 285, 660, 160); using var f = new Font("Segoe UI", 11); using var fb = new Font("Segoe UI", 12, FontStyle.Bold); using var br = new SolidBrush(Ink);
+            var box = new RectangleF(ClientSize.Width / 2 - 330, 285, 660, 160); Pix.Panel(g, new Rectangle((int)box.X - 12, (int)box.Y - 9, (int)box.Width + 24, (int)box.Height + 12)); using var f = new Font("Consolas", 11); using var fb = new Font("Consolas", 12, FontStyle.Bold); using var br = new SolidBrush(Ink);
             g.DrawString($"{view.Name}   -   HP {view.HP}   -   Size {(view.R > 30 ? "2x" : "1x")}", fb, br, box.X, box.Y);
             g.DrawString("Passive: " + view.Passive, f, br, new RectangleF(box.X, box.Y + 30, box.Width, 60));
             g.DrawString("Ultimate: " + view.Ult, f, br, new RectangleF(box.X, box.Y + 95, box.Width, 60));
         }
-        Txt(g, $"Selected {pick.Count}/5  (click a chip to remove, min 2)", 10, ClientSize.Width / 2, 458);
+        Pix.Panel(g, new Rectangle(ClientSize.Width / 2 - 170, 444, 340, 80)); Txt(g, $"Selected {pick.Count}/5  (click a chip to remove, min 2)", 10, ClientSize.Width / 2, 458);
         for (int i = 0; i < pick.Count; i++)
         {
             var c = ChipRect(i); using var cb = new SolidBrush(pick[i].C); using var cp = new Pen(Ink, 2);
@@ -319,7 +318,7 @@ class Game : Form
         float t = s.CineT; curCine = t; int mode = 0;
         // the old full-arena black/white inversion is replaced by ImpactFx's localized panels (no strobing)
         Color bgc = mode == 1 ? Color.White : mode == 2 ? Color.Black : Theme; var ar = hud ? Arena() : ClientRectangle;
-        if (hud) { using var fb = new SolidBrush(bgc); g.FillRectangle(fb, ar); } else g.Clear(bgc);
+        // background and arena floor come from Pix.Scene
         g.SetClip(ar); g.TranslateTransform(ar.X + (hud ? vfx.ShakeX : 0), ar.Y + (hud ? vfx.ShakeY : 0));
         float z = 1; var sh = PointF.Empty;
         if (t >= .36f && t < .61f) { z = 1 + 0.5f * MathF.Sin(MathF.PI * (t - .36f) / .25f); sh = new(rng.Next(-4, 5) * Settings.Shake, rng.Next(-4, 5) * Settings.Shake); }   // punch-in during the burst
@@ -330,7 +329,7 @@ class Game : Form
         impact.Draw(g, new RectangleF(0, 0, s.W, s.H), (float)sw.Elapsed.TotalSeconds, t >= 0);
         
         g.ResetTransform();
-        vfx.DrawFlash(g, ar); g.ResetClip(); if (hud) { using var bp = new Pen(Ink, 4); g.DrawRectangle(bp, ar); DrawHud(g, s); }
+        vfx.DrawFlash(g, ar); g.ResetClip(); if (hud) DrawHud(g, s);
     }
 
     void DrawBurst(Graphics g, PointF p, float k)
@@ -352,9 +351,7 @@ class Game : Form
         {
             for (int i = 0; i < b.Trail.Count; i++) { using var tb = new SolidBrush(Color.FromArgb(10 + i * 6, Color.DeepSkyBlue)); float tr = r * i / b.Trail.Count; g.FillEllipse(tb, b.Trail[i].X - tr, b.Trail[i].Y - tr, 2 * tr, 2 * tr); }
             vfx.DrawAura(g, b);
-            using var path = new GraphicsPath(); path.AddEllipse(rc);
-            using var pg = new PathGradientBrush(path) { CenterColor = ControlPaint.Light(b.D.C), SurroundColors = new[] { b.D.C }, CenterPoint = new(b.P.X - r / 3, b.P.Y - r / 3) };
-            g.FillPath(pg, path); using var op = new Pen(Color.FromArgb(70, 60, 50), 2); g.DrawEllipse(op, rc);
+            Pix.Ball(g, b.P, r, b.D.C);
             if (b.Shock > 0) { using var sp = new Pen(Color.Cyan, 2); var q = new Random((int)(b.Shock * 20)); for (int i = 0; i < 6; i++) { double a = q.NextDouble() * 6.28; g.DrawLine(sp, b.P.X + (float)Math.Cos(a) * r, b.P.Y + (float)Math.Sin(a) * r, b.P.X + (float)Math.Cos(a + .3) * (r + 14), b.P.Y + (float)Math.Sin(a + .3) * (r + 14)); } }
         }
         if (mode == 0) { float tt = (float)sw.Elapsed.TotalSeconds; CharArt.Status(g, b, tt); if (b.D.K >= Kind.Inferno) CharArt.Body(g, b, tt); }
@@ -371,7 +368,7 @@ class Game : Form
     void DrawHud(Graphics g, Sim s)
     {
         var ar = Arena(); int pw = 200, ph = 150, left = (s.Balls.Count + 1) / 2;
-        using (var fh = new Font("Segoe UI", 10, FontStyle.Bold)) g.DrawString($"Speed x{s.SpeedMul:0.0}    Time {s.Time:0}s", fh, new SolidBrush(Ink), ar.X, ar.Y - 24);
+        Txt(g, $"Speed x{s.SpeedMul:0.0}    Time {s.Time:0}s", 10, ar.X + ar.Width / 2, ar.Y - 22, true);
         for (int i = 0; i < s.Balls.Count; i++)
         {
             var b = s.Balls[i]; bool isL = i < left; int k = isL ? i : i - left;
@@ -381,16 +378,15 @@ class Game : Form
             else if (b.D.K == Kind.Sword) { pct = b.Slashes * 20; ult = $"{pct:0}% ({b.Slashes}/5)"; }
             else if (b.D.K >= Kind.Inferno) { pct = b.UltT > 0 ? 100 : b.Charge; ult = b.UltT > 0 ? $"ACTIVE {b.UltT:0.0}s" : $"{b.Charge:0}%"; dmg = Balance.BaseHit; }
             else { pct = 0; ult = "No ultimate"; }
-            using var f = new Font("Segoe UI", 11, FontStyle.Bold); using var fs = new Font("Segoe UI", 10); using var ink = new SolidBrush(b.Alive ? Ink : Color.Gray);
-            g.DrawString(b.Label + (b.Alive ? "" : " - OUT"), f, ink, x, y);
+            using var f = new Font("Consolas", 10, FontStyle.Bold); using var fs = new Font("Consolas", 9); using var ink = new SolidBrush(b.Alive ? Pix.Cream : Color.Gray);
+            Pix.Panel(g, new Rectangle(x - 9, y - 6, pw + 18, 148)); g.DrawString(b.Label + (b.Alive ? "" : " - OUT"), f, ink, x, y);
             g.DrawString($"Health  {b.HP:0.0} / {b.D.HP}", fs, ink, x, y + 30); Bar(g, x, y + 52, pw, 14, b.HP / b.D.HP, Color.LimeGreen);
             g.DrawString("Ultimate  " + ult, fs, ink, x, y + 78); Bar(g, x, y + 100, pw, 14, pct / 100, b.D.K == Kind.Sword ? Color.Gray : b.D.C);
             g.DrawString($"Damage  {dmg:0.00}  {CharArt.Tags(b)}", fs, ink, x, y + 126);
         }
     }
 
-    static void Bar(Graphics g, int x, int y, int w, int h, float k, Color c)
-    { using var back = new SolidBrush(Color.FromArgb(70, 60, 50, 40)); using var fill = new SolidBrush(c); g.FillRectangle(back, x, y, w, h); g.FillRectangle(fill, x, y, w * Math.Clamp(k, 0, 1), h); }
+    static void Bar(Graphics g, int x, int y, int w, int h, float k, Color c) => Pix.Bar(g, x, y, w, h, k, c);
 }
 
 static class Program
