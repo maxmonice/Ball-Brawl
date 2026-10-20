@@ -64,6 +64,12 @@ static class Pix
     {
         if (scene == null || sceneSz != sz || sceneAr != ar) { scene?.Dispose(); scene = Build(sz, ar); sceneSz = sz; sceneAr = ar; }
         g.DrawImage(scene, 0, 0, scene.Width * U, scene.Height * U);
+        if (!ar.IsEmpty) g.SetClip(Rectangle.Inflate(ar, 3 * U, 3 * U), CombineMode.Exclude);   // animated scenery never draws over the arena or its frame
+        try { Animated(g, sz, ar, t); } finally { g.ResetClip(); }
+    }
+
+    static void Animated(Graphics g, Size sz, Rectangle ar, float t)
+    {
         int W = sz.Width, H = sz.Height, gy = (H / U + 1) * 80 / 100 * U;
         Fill(g, C(255, 232, 120), W - 90, 40, 36, 36); Fill(g, C(255, 250, 190), W - 84, 46, 12, 12);
         if (((int)(t * 2) & 1) == 0) { Fill(g, C(255, 232, 120), W - 78, 28, 12, 9); Fill(g, C(255, 232, 120), W - 78, 79, 12, 9); Fill(g, C(255, 232, 120), W - 102, 52, 9, 12); Fill(g, C(255, 232, 120), W - 51, 52, 9, 12); }

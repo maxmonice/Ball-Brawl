@@ -9,7 +9,24 @@ partial class Sim
     public List<Zone> Zones = new(); public List<Meteor> Meteors = new();
     static bool IsNew(Kind k) => k >= Kind.Inferno;
     void Ev(int t, Kind k, PointF p, float scale = 1, bool ult = false) => Events.Add(new GameEvent(t, k, p, new(1, 0), ult, scale));
-    void Dot(Ball o, float d) { o.HP = Math.Max(0, o.HP - d); }
+    void Dot(Ball o, float d) => ApplyDamage(o, d);
+
+    // The single place health is reduced. Returns the HP actually removed (never more than the target had), so lifesteal can't exceed real damage.
+    // Dead targets take nothing. Float residue (e.g. 0.3-0.1-0.1-0.1 = 3e-8) is snapped to exactly 0 so lethal damage always kills.
+    float ApplyDamage(Ball o, float d)
+    {
+        if (d <= 0 || !o.Alive) return 0;
+        float before = o.HP, after = before - d; if (after <= 1e-5f) after = 0;
+        o.HP = after; return before - after;
+    }
+
+    // Lifesteal is applied after BOTH sides of a collision have dealt damage, and only to a ball that is still alive,
+    // so a ball killed in a collision can never be healed back to life by its own hit in that same collision.
+    void Settle(Ball o)
+    {
+        if (o.PendingHeal > 0 && o.Alive) o.HP = Math.Min(o.D.HP, o.HP + o.PendingHeal);
+        o.PendingHeal = 0;
+    }
 
     // movement multiplier from every active status effect (freeze = 0)
     public float Speed(Ball b)
@@ -45,7 +62,7 @@ partial class Sim
         {
             case Kind.Inferno: b.BurnT = Balance.InfBurnTime; b.BurnDps = Math.Max(b.BurnDps, Balance.InfBurnDps); Ev(17, a.D.K, b.P); break;   // refresh, never stack
             case Kind.Frost: b.SlowStacks = Math.Min((int)(Balance.FrostSlowMax / Balance.FrostSlowStep + .5f), b.SlowStacks + 1); b.SlowT = Balance.FrostSlowTime; Ev(17, a.D.K, b.P); break;
-            case Kind.Void: a.HP = Math.Min(a.D.HP, a.HP + actual * Balance.VoidDrain); break;
+            case Kind.Void: a.PendingHeal += actual * Balance.VoidDrain; break;   // 20% of damage actually dealt, settled after the collision
             case Kind.Venom: b.Poison = Math.Min((int)Balance.PoisonMax, b.Poison + 1); b.PoisonT = Balance.PoisonTime; Ev(17, a.D.K, b.P); break;
             case Kind.Solar:
                 if (a.Energy >= 100) { a.Energy = 0; Area(a, cp, Balance.SolarBurstRadius, Balance.SolarBurstDmg); Ev(11, Kind.Solar, cp, Balance.SolarBurstRadius); }
@@ -54,7 +71,7 @@ partial class Sim
             case Kind.Cosmic: if (a.Hits % 3 == 0) { a.BoostT = Balance.CosmicBoostTime; Ev(11, Kind.Cosmic, a.P); } break;
             case Kind.Tempest: a.TailStacks = Math.Min((int)(Balance.TailMax / Balance.TailStep + .5f), a.TailStacks + 1); a.TailT = Balance.TailTime; Ev(11, Kind.Tempest, a.P); break;
         }
-        if (a.UltT <= 0 && (a.Charge += Balance.UltPerHit) >= 100) { a.Charge = 0; Cast(a, b); }
+        if (a.Alive && a.UltT <= 0 && (a.Charge += Balance.UltPerHit) >= 100) { a.Charge = 0; Cast(a, b); }
     }
 
     void Cast(Ball a, Ball b)
@@ -75,6 +92,32 @@ partial class Sim
                 break;
             case Kind.Tempest: a.UltT = Balance.CycloneTime; break;
         }
+    }
+
+    // Run with: dotnet run -- --selftest   (uses the real Strike/ApplyDamage/Settle code)
+    internal static string SelfTest()
+    {
+        var log = new System.Text.StringBuilder(); int fail = 0;
+        void Check(string name, bool ok) { if (!ok) fail++; log.AppendLine((ok ? "PASS  " : "FAIL  ") + name); }
+        static bool Near(float a, float b) => MathF.Abs(a - b) < 1e-4f;
+        Def D(Kind k) => Roster.All.First(d => d.K == k);
+        var s = new Sim(new[] { D(Kind.Void), D(Kind.Lightning) }, false, 400, 400); var v = s.Balls[0]; var l = s.Balls[1]; var p = new PointF(200, 200);
+        v.HP = 100; Check("1  100 HP takes damage", Near(s.ApplyDamage(v, 1f), 1f) && Near(v.HP, 99));
+        v.HP = 1; s.ApplyDamage(v, .5f); Check("2  1 HP takes damage", Near(v.HP, .5f));
+        v.HP = .3f; s.ApplyDamage(v, .1f); Check("3  0.3 -> ~0.2", Near(v.HP, .2f));
+        s.ApplyDamage(v, .1f); Check("4  0.2 -> ~0.1", Near(v.HP, .1f) && v.Alive);
+        s.ApplyDamage(v, .1f); Check("5a 0.1 - 0.1 reaches exactly 0", v.HP == 0 && !v.Alive);
+        v.HP = .1f; float got = s.ApplyDamage(v, 5f); Check("5b lethal overkill -> 0, removes only 0.1", v.HP == 0 && Near(got, .1f));
+        Check("6  dead ball takes nothing, stays dead", s.ApplyDamage(v, 1f) == 0 && v.HP == 0 && !v.Alive);
+        v.HP = 50; l.HP = 100; s.Strike(v, l, p); s.Settle(v); s.Settle(l); Check("7a lifesteal heals 20% of damage dealt", Near(v.HP, 50.2f) && Near(l.HP, 99f));
+        v.HP = v.D.HP - .1f; s.Strike(v, l, p); s.Settle(v); Check("7b lifesteal capped at max HP", Near(v.HP, v.D.HP));
+        for (int order = 0; order < 2; order++)   // lethal collision in both processing orders: the Void Ball must stay dead
+        {
+            v.HP = .05f; l.HP = 100; v.PendingHeal = 0;
+            if (order == 0) { s.Strike(l, v, p); s.Strike(v, l, p); } else { s.Strike(v, l, p); s.Strike(l, v, p); }
+            s.Settle(v); s.Settle(l); Check($"8  lethal collision, order {order}: stays dead (no resurrection)", v.HP == 0 && !v.Alive);
+        }
+        log.AppendLine(fail == 0 ? "\nALL PASSED" : $"\n{fail} FAILED"); return log.ToString();
     }
 
     // timed per-ball effects; paused automatically during hit-stop / cinematics because Step returns early

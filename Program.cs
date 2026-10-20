@@ -35,7 +35,7 @@ static class Roster
 class Ball
 {
     public Def D; public PointF P, V; public float HP, Passive = 0.1f, Charge, UltT, Glow, Shock, SlashT = -1, Cd;
-    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter, UltSlash;   // status effects of the newer characters
+    public float BurnT, BurnDps, PoisonT, SlowT, FreezeT, ShieldT, BoostT, TailT, Energy; public int Poison, SlowStacks, TailStacks, Hits, Received; public bool Shatter, UltSlash; public float PendingHeal;   // status effects of the newer characters
     public int UltCount, Slashes; public string Label; public List<PointF> Trail = new();
     public float R => D.R; public bool Alive => HP > 0;
 }
@@ -103,7 +103,7 @@ partial class Sim
                 a.V = new(a.V.X + (na - va) * nx, a.V.Y + (na - va) * ny); b.V = new(b.V.X + (nb - vb) * nx, b.V.Y + (nb - vb) * ny);
             }
             int key = i * 10 + j; if (Pcd.TryGetValue(key, out var pc) && pc > 0) continue; Pcd[key] = 0.25f;
-            Strike(a, b, new(a.P.X + nx * a.R, a.P.Y + ny * a.R)); Strike(b, a, new(b.P.X - nx * b.R, b.P.Y - ny * b.R));
+            Strike(a, b, new(a.P.X + nx * a.R, a.P.Y + ny * a.R)); Strike(b, a, new(b.P.X - nx * b.R, b.P.Y - ny * b.R)); Settle(a); Settle(b);
         }
     }
 
@@ -134,7 +134,7 @@ partial class Sim
                 dmg = Balance.BaseHit; Hitfx(a, b, cp, false);
                 break;
         }
-        dmg = Incoming(a, b, dmg); float before = b.HP; b.HP = Math.Max(0, b.HP - dmg); AfterHit(a, b, before - b.HP, cp);
+        dmg = Incoming(a, b, dmg); AfterHit(a, b, ApplyDamage(b, dmg), cp);
     }
 }
 
@@ -380,7 +380,7 @@ class Game : Form
             else { pct = 0; ult = "No ultimate"; }
             using var f = new Font("Consolas", 10, FontStyle.Bold); using var fs = new Font("Consolas", 9); using var ink = new SolidBrush(b.Alive ? Pix.Cream : Color.Gray);
             Pix.Panel(g, new Rectangle(x - 9, y - 6, pw + 18, 148)); g.DrawString(b.Label + (b.Alive ? "" : " - OUT"), f, ink, x, y);
-            g.DrawString($"Health  {b.HP:0.0} / {b.D.HP}", fs, ink, x, y + 30); Bar(g, x, y + 52, pw, 14, b.HP / b.D.HP, Color.LimeGreen);
+            g.DrawString($"Health  {(b.HP > 0 && b.HP < 1 ? b.HP.ToString("0.00") : b.HP.ToString("0.0"))} / {b.D.HP}", fs, ink, x, y + 30); Bar(g, x, y + 52, pw, 14, b.HP / b.D.HP, Color.LimeGreen);
             g.DrawString("Ultimate  " + ult, fs, ink, x, y + 78); Bar(g, x, y + 100, pw, 14, pct / 100, b.D.K == Kind.Sword ? Color.Gray : b.D.C);
             g.DrawString($"Damage  {dmg:0.00}  {CharArt.Tags(b)}", fs, ink, x, y + 126);
         }
@@ -391,5 +391,10 @@ class Game : Form
 
 static class Program
 {
-    [STAThread] static void Main() { ApplicationConfiguration.Initialize(); Application.Run(new Game()); }
+    [STAThread] static void Main(string[] args)
+    {
+        ApplicationConfiguration.Initialize();
+        if (args.Contains("--selftest")) { MessageBox.Show(Sim.SelfTest(), "Ball Brawl self-test"); return; }   // dotnet run -- --selftest
+        Application.Run(new Game());
+    }
 }
