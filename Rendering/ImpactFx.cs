@@ -4,7 +4,7 @@ namespace BallBrawl;
 // Accessibility / comfort options (keys: F = reduce flashing, G = cycle screen-shake strength).
 static class Settings { public static bool ReduceFlash; public static float Shake = 1f; }
 
-class Impact { public Ball A, B; public PointF P; public float Dir, Age, Life; public bool Ult, Burst; public int Seed; }
+class Impact { public BallCharacter A, B; public PointF P; public float Dir, Age, Life; public bool Ult, Burst; public int Seed; }
 struct Snap { public PointF P; public float R, Ang, Age; public int Tint; public bool On; }
 struct Shard { public float X, Y, VX, VY, Rot, VR, Size, Age, Life; public int Tint; public bool On; }
 
@@ -35,7 +35,7 @@ class ImpactFx : IDisposable
 
     public void Finish() { foreach (var m in imps) m.Age = m.Life; }   // ultimate complete
 
-    public void Track(Sim s, float dt, float t)   // sample the real sword pose while it swings -> afterimages
+    public void Track(GameEngine s, float dt, float t)   // sample the real sword pose while it swings -> afterimages
     {
         snapT -= dt; if (s.Hit > 0 || s.CineT >= 0 || snapT > 0) return;
         foreach (var b in s.Balls)

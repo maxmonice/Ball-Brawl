@@ -1,6 +1,6 @@
 namespace BallBrawl;
 
-// Central tuning for the eight newer characters (the original three keep their rules in Sim).
+// Central tuning for character mechanics shared across their dedicated implementations.
 static class Balance
 {
     // ASSUMPTIONS (the spec gave no values): base collision damage and ultimate charge per collision for the new characters.

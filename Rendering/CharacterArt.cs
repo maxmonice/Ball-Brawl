@@ -1,10 +1,11 @@
 namespace BallBrawl;
 
-// Render-only art for the newer characters, status effects, gravity/poison zones and meteors. Reads Sim state, never changes it.
+// Render-only art for the newer characters, status effects, gravity/poison zones and meteors. Reads GameEngine state, never changes it.
 static class CharArt
 {
     static readonly SolidBrush br = new(Color.White); static readonly Pen pen = new(Color.White) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round };
     static readonly PointF[] tri = new PointF[3];
+    public static void Dispose() { br.Dispose(); pen.Dispose(); }
     static int A(float v) => Math.Clamp((int)v, 0, 255);
     static void Dot(Graphics g, float x, float y, float r, Color c) { br.Color = c; g.FillEllipse(br, x - r, y - r, 2 * r, 2 * r); }
     static void Spike(Graphics g, PointF p, float ang, float r0, float len, float w, Color c)
@@ -14,7 +15,7 @@ static class CharArt
         br.Color = c; g.FillPolygon(br, tri);
     }
 
-    public static string Tags(Ball b)
+    public static string Tags(BallCharacter b)
     {
         string s = "";
         if (b.BurnT > 0) s += "BURN "; if (b.Poison > 0) s += $"PSN{b.Poison} "; if (b.SlowStacks > 0) s += $"SLOW{Math.Min(30, b.SlowStacks * 5)}% ";
@@ -23,7 +24,7 @@ static class CharArt
         return s;
     }
 
-    public static void Body(Graphics g, Ball b, float t)
+    public static void Body(Graphics g, BallCharacter b, float t)
     {
         float r = b.R, x = b.P.X, y = b.P.Y, pi = MathF.PI;
         switch (b.D.K)
@@ -74,7 +75,7 @@ static class CharArt
         }
     }
 
-    public static void Status(Graphics g, Ball b, float t)
+    public static void Status(Graphics g, BallCharacter b, float t)
     {
         float r = b.R, x = b.P.X, y = b.P.Y;
         if (b.BurnT > 0) for (int i = 0; i < 3; i++) { float f = MathF.Sin(t * 13 + i * 2); Spike(g, b.P, -MathF.PI / 2 + (i - 1) * .5f, r * .8f, 12 + 5 * f * f, 4, Color.FromArgb(170, 255, 120, 20)); }
@@ -89,13 +90,13 @@ static class CharArt
         }
     }
 
-    public static void World(Graphics g, Sim s, float t)
+    public static void World(Graphics g, GameEngine s, float t)
     {
         foreach (var z in s.Zones)
         {
-            float life = Math.Min(1, (z.Life - z.Age) / .5f), R = z.R * Math.Min(1, z.Age / .3f), cx = z.P.X, cy = z.P.Y;
+            float life = Math.Min(1, (z.Life - z.Age) / .5f), R = z.Radius * Math.Min(1, z.Age / .3f), cx = z.Position.X, cy = z.Position.Y;
             if (R < 4f) continue;   // zone grows from radius 0; GDI+ rejects zero-size arcs/ellipses
-            if (z.K == Kind.Void)
+            if (z.Kind == Kind.Void)
             {
                 Dot(g, cx, cy, R, Color.FromArgb(A(70 * life), 25, 5, 45)); Dot(g, cx, cy, R * .35f, Color.FromArgb(A(160 * life), 10, 0, 25));
                 for (int q = 0; q < 3; q++) { float rr = R * (.55f + q * .22f); pen.Color = Color.FromArgb(A(170 * life), 170, 90, 240); pen.Width = 2; g.DrawArc(pen, cx - rr, cy - rr, 2 * rr, 2 * rr, t * (120 + q * 40) + q * 100, 100); }   // distorted rings
@@ -112,9 +113,9 @@ static class CharArt
         {
             if (!m.Started) continue;
             float k = Math.Clamp((m.Age - m.Start) / Balance.MeteorFall, 0, 1), pulse = .6f + .4f * MathF.Sin(t * 20), rr = Balance.MeteorRadius;
-            pen.Color = Color.FromArgb(A(220 * pulse), 255, 70, 90); pen.Width = 2.5f; g.DrawEllipse(pen, m.Pos.X - rr, m.Pos.Y - rr, 2 * rr, 2 * rr);   // warning indicator
-            Dot(g, m.Pos.X, m.Pos.Y, rr * k, Color.FromArgb(50, 255, 70, 90));
-            float hx = m.Pos.X - 150 * (1 - k), hy = m.Pos.Y - 300 * (1 - k); pen.Color = Color.FromArgb(200, 255, 150, 60); pen.Width = 6; g.DrawLine(pen, hx - 45, hy - 90, hx, hy); Dot(g, hx, hy, 8, Color.FromArgb(255, 255, 240, 200));
+            pen.Color = Color.FromArgb(A(220 * pulse), 255, 70, 90); pen.Width = 2.5f; g.DrawEllipse(pen, m.Position.X - rr, m.Position.Y - rr, 2 * rr, 2 * rr);   // warning indicator
+            Dot(g, m.Position.X, m.Position.Y, rr * k, Color.FromArgb(50, 255, 70, 90));
+            float hx = m.Position.X - 150 * (1 - k), hy = m.Position.Y - 300 * (1 - k); pen.Color = Color.FromArgb(200, 255, 150, 60); pen.Width = 6; g.DrawLine(pen, hx - 45, hy - 90, hx, hy); Dot(g, hx, hy, 8, Color.FromArgb(255, 255, 240, 200));
         }
     }
 }

@@ -31,7 +31,7 @@ The game is developed through a combination of AI-assisted code generation, iter
 ### Prerequisites
 
 - Windows
-- .NET SDK compatible with the project
+- .NET 10 SDK
 - Visual Studio Code or Visual Studio
 
 ### Installation
@@ -50,11 +50,40 @@ The game is developed through a combination of AI-assisted code generation, iter
    dotnet restore
    ```
 
-4. Run the game:
+4. Build and run the game:
 
    ```bash
+   dotnet build BallBrawl.csproj
    dotnet run
    ```
+
+5. Run the built-in gameplay self-test:
+
+   ```bash
+   dotnet run -- --selftest
+   ```
+
+   The self-test report appears in a Windows message box.
+
+## Architecture
+
+Gameplay state and presentation are separated. `GameEngine` coordinates the simulation, while `PhysicsSystem`, `CombatSystem`, `StatusEffectSystem`, and `UltimateSystem` own focused parts of the update. `GameEventManager` queues simulation events for the audio and visual-effects code to consume.
+
+`BallCharacter` defines shared character state and lifecycle hooks. Each playable character has its own derived class, and `CharacterFactory` creates fresh instances. The eight charge-based characters share only their common charge-on-hit lifecycle through `ChargedBallCharacter`; each still supplies its passive and ultimate behavior. Roster definitions retain names, colors, health, size, and UI descriptions.
+
+The WinForms UI keeps the existing menu, selection, match, and results flow. Rendering files read character and engine state without applying gameplay changes. The enum-based UI state remains a small, explicit state-management approach.
+
+```text
+Characters/  Character base class, factory, and eleven character implementations
+Domain/      Roster definitions and shared balance values
+Engine/      Simulation lifecycle and match physics orchestration
+Events/      Gameplay event queue
+Match/       Match creation and results snapshots
+Systems/     Physics, combat, status effects, and ultimate/world updates
+Rendering/   Pixel art, character art, visual effects, sword art, and impacts
+Audio/       NAudio playback and gameplay sound mapping
+UI/          Windows Forms game, menus, selection, and HUD
+```
 
 ## 🤖 Development Workflow
 

@@ -42,10 +42,10 @@ static class SwordArt
     }
 
     // ---- pose helpers (single source for the sword's idle sway and swing; used by DrawBall and ImpactFx) ----
-    public static float Rest(Ball b, float t) => -0.9f + 0.07f * MathF.Sin(t * 3 + b.D.HP);
+    public static float Rest(BallCharacter b, float t) => -0.9f + 0.07f * MathF.Sin(t * 3 + b.D.HP);
     public static float SlashAngle(float rest, float slashT)   // wind-up, then a fast 360 swing
     { float p = slashT / 0.25f; return rest + (p < .12f ? -0.6f * p / .12f : -0.6f + (MathF.PI * 2 + 0.6f) * (1 - MathF.Pow(1 - (p - .12f) / .88f, 2))); }
-    public static (float, float) Pose(Ball b, float t, bool cine)   // (angle, scale); during the ultimate freeze the sword is cocked and enlarged
+    public static (float, float) Pose(BallCharacter b, float t, bool cine)   // (angle, scale); during the ultimate freeze the sword is cocked and enlarged
     {
         float rest = Rest(b, t), s = b.R / 28f;
         if (b.SlashT >= 0 && cine) return (rest - 0.9f + 0.03f * MathF.Sin(t * 90), s * 1.3f);
@@ -55,6 +55,12 @@ static class SwordArt
     static readonly PointF[] EdgeLine = { new(34, -3.8f), new(68, -3.2f), new(76, 0) };
     static readonly PointF[][] Segs = { new PointF[] { new(34, -3.8f), new(48, -3.5f), new(48, 3.5f), new(34, 3.8f) }, new PointF[] { new(49, -3.5f), new(63, -3.3f), new(63, 3.3f), new(49, 3.5f) }, new PointF[] { new(64, -3.3f), new(68, -3.2f), new(76, 0), new(68, 3.2f), new(64, 3.3f) } };
     static readonly SolidBrush SegB = new(Color.White);
+    public static void Dispose()
+    {
+        foreach (var path in Parts) path.Dispose();
+        Shade.Dispose(); Jewel.Dispose(); BladeB.Dispose(); GoldB.Dispose(); GripB.Dispose(); ShadeB.Dispose(); GhostB.Dispose(); SegB.Dispose();
+        Edge.Dispose(); Shine.Dispose(); Wrap.Dispose(); Fuller.Dispose(); OutW.Dispose(); OutB.Dispose(); EdgeP.Dispose();
+    }
     public static void DrawEdge(Graphics g, PointF c, float s, float ang, Color col)   // crimson highlight along the cutting edge
     {
         var st = g.Save(); g.TranslateTransform(c.X, c.Y); g.RotateTransform(ang * 57.2958f); g.ScaleTransform(s, s);

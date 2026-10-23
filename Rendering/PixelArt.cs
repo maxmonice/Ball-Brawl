@@ -14,7 +14,7 @@ static class Pix
     static Color Mix(Color a, Color b, float t) => Color.FromArgb((int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
     static void Fill(Graphics g, Color c, int x, int y, int w, int h) { br.Color = c; g.FillRectangle(br, x, y, w, h); }
     public static float Snap(float v) => MathF.Round(v / U) * U;
-    public static void Dispose() { scene?.Dispose(); scene = null; foreach (var b in balls.Values) b.Dispose(); balls.Clear(); }
+    public static void Dispose() { scene?.Dispose(); scene = null; foreach (var b in balls.Values) b.Dispose(); balls.Clear(); br.Dispose(); }
 
     // ---------- scenery ----------
     static void Ridge(Graphics g, int lw, int lh, int baseY, int amp, Color c1, Color c2, int seed)

@@ -103,7 +103,7 @@ static class Audio
         }
     }
     static float amb2, amb3;
-    public static void Ambient(Sim s, float dt)   // sparse ticks only (no loops): lightning crackle, burning crackle, poison bubbles
+    public static void Ambient(GameEngine s, float dt)   // sparse ticks only (no loops): lightning crackle, burning crackle, poison bubbles
     {
         if (dt <= 0) return;
         foreach (var b in s.Balls)
@@ -113,7 +113,7 @@ static class Audio
         }
         AmbientLightning(s, dt);
     }
-    static void AmbientLightning(Sim s, float dt)   // sparse crackle ticks while Overcharge is active (no constant loop)
+    static void AmbientLightning(GameEngine s, float dt)   // sparse crackle ticks while Overcharge is active (no constant loop)
     {
         if (dt <= 0) return;
         foreach (var b in s.Balls) if (b.Alive && b.D.K == Kind.Lightning && b.UltT > 0 && (amb -= dt) <= 0) { amb = .25f + (float)rng.NextDouble() * .3f; Play("l_crackle", .35f, .15f, 0, 90); }

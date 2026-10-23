@@ -2,14 +2,13 @@ using System.Drawing.Drawing2D;
 namespace BallBrawl;
 
 // Events the gameplay sim raises; the renderer turns them into effects. Gameplay never reads VFX state.
-readonly record struct GameEvent(int T, Kind K, PointF P, PointF N, bool Ult, float Scale, Ball Src = null, Ball Dst = null); // T: 0 = hit, 1 = lightning ultimate start
 
 struct Particle { public float X, Y, VX, VY, Age, Life, Size, Drag, Tail; public Color C; public bool Glow; }
 struct Ring { public PointF P; public float Delay, Age, Life, Size, Thick; public Color C; public bool Inward; }
 class Bolt { public PointF[][] Lines; public float Age, Life, W; public Color C; }
 
 // Pooled particles, shockwaves, branching bolts, flash and shake. All timing is dt-based.
-class Vfx
+class Vfx : IDisposable
 {
     const int Cap = 700; readonly Particle[] ps = new Particle[Cap]; int head; float clock, ember, trauma, flash;
     readonly List<Ring> rings = new(); readonly List<Bolt> bolts = new(); readonly Random rng = new(); Color flashC = Color.White;
@@ -17,6 +16,7 @@ class Vfx
     readonly SolidBrush br = new(Color.White); readonly PointF[] arc = new PointF[5];
     public float ShakeX, ShakeY;
     public Vfx() { Clear(); }
+    public void Dispose() { pen.Dispose(); br.Dispose(); }
 
     static int A(float v) => Math.Clamp((int)v, 0, 255);
     float R(float a, float b) => a + (b - a) * rng.NextSingle();
@@ -72,7 +72,7 @@ class Vfx
     }
 
     // continuous effects: lightning embers during the ultimate, sword-tip streaks while slashing
-    public void Ambient(Sim sim, float dt)
+    public void Ambient(GameEngine sim, float dt)
     {
         if (dt <= 0) return;
         foreach (var b in sim.Balls)
@@ -133,7 +133,7 @@ class Vfx
     }
 
     // continuous per-character effects (rates are per second, so they look the same at any frame rate)
-    void AmbientExt(Ball b, float dt)
+    void AmbientExt(BallCharacter b, float dt)
     {
         var back = new PointF(b.P.X - b.V.X * b.R, b.P.Y - b.V.Y * b.R); float vang = MathF.Atan2(-b.V.Y, -b.V.X), up = -MathF.PI / 2;
         if (b.BurnT > 0) for (int i = Rate(25, dt); i > 0; i--) Emit(b.P, up + R(-.5f, .5f), R(30, 90), R(.3f, .6f), R(2, 4), rng.Next(2) == 0 ? Color.OrangeRed : Color.Gold, 1, 0, true);
@@ -197,7 +197,7 @@ class Vfx
     public void DrawFlash(Graphics g, Rectangle ar) { if (flash <= 0) return; br.Color = Color.FromArgb(A(Math.Min(1, flash) * 200), flashC); g.FillRectangle(br, ar); }
 
     // Lightning identity: pulsing neon aura layers plus crackling arcs hugging the body
-    public void DrawAura(Graphics g, Ball b)
+    public void DrawAura(Graphics g, BallCharacter b)
     {
         if (b.D.K != Kind.Lightning) return;
         bool on = b.UltT > 0 || b.Glow > 0; float pulse = .5f + .5f * MathF.Sin(clock * 9), r = b.R;
@@ -211,7 +211,7 @@ class Vfx
     }
 
     // Sword identity: layered crescent slash arc (dark underlay keeps it visible on the cream theme)
-    public void DrawSlash(Graphics g, Ball b, float ang, float r)
+    public void DrawSlash(Graphics g, BallCharacter b, float ang, float r)
     {
         float deg = ang * 57.2958f; var rc = new RectangleF(b.P.X - r, b.P.Y - r, 2 * r, 2 * r);   // r = blade-tip radius
         pen.Color = Color.FromArgb(70, 40, 40, 60); pen.Width = 10; g.DrawArc(pen, rc, deg - 150, 150);
